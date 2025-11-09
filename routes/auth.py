@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request, HTTPException, status
 from schemas.users import  ResponseSchema, TokenResponse, Register, Login, UserOut
 from sqlalchemy.orm import Session
 from config import get_db
@@ -42,22 +42,55 @@ async def signup(request: Register, db: Session = Depends(get_db)):
     print(error.args)
     return ResponseSchema(code="500", status="Error", message="Erreur du serveur").dict(exclude_none=True)
   
-
 # login
 @router.post('/login')
 async def login(request: Login, db: Session = Depends(get_db)):
-  try:
-    # insert data
-    user = UsersRepo.find_by_username(db, request.username)
+    try:
+        # Vérification de l'existence de l'utilisateur
+        user = UsersRepo.find_by_username(db, request.username)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Nom d'utilisateur ou mot de passe incorrect."
+            )
 
-    if not pwd_context.verify(request.password, user.password):
-      return ResponseSchema(code="400", status="Bad Request", message="Username ou mot de passe incorrect.").dict(exclude_none=True)
-    token = JWTRepo.generate_token({'sub': user.username})
-    return ResponseSchema(code="200", status="OK", message="Connexion réussit", result=TokenResponse(access_token=token, token_type="bearer").dict(exclude_none=True))
-  except Exception as error:
-    error_message = str(error.args)
-    print(error_message)
-    return ResponseSchema(code="500", status="Error", message="Erreur du serveur").dict(exclude_none=True)
+        # Vérification du mot de passe
+        if not pwd_context.verify(request.password, user.password):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Nom d'utilisateur ou mot de passe incorrect."
+            )
+
+        # Génération du token JWT
+        token = JWTRepo.generate_token({'sub': user.username})
+
+        # Réponse de succès
+        return ResponseSchema(
+            code="200",
+            status="OK",
+            message="Connexion réussie",
+            result=TokenResponse(
+                access_token=token,
+                token_type="bearer"
+            ).dict(exclude_none=True)
+        ).dict(exclude_none=True)
+
+    except HTTPException as http_error:
+        # Gestion propre des erreurs d'authentification
+        return ResponseSchema(
+            code=str(http_error.status_code),
+            status="Bad Request",
+            message=http_error.detail
+        ).dict(exclude_none=True)
+
+    except Exception as error:
+        # Gestion d'erreurs serveur
+        print(f"Erreur serveur: {error}")
+        return ResponseSchema(
+            code="500",
+            status="Error",
+            message="Erreur interne du serveur."
+        ).dict(exclude_none=True)
   
 @router.get("/me", response_model=ResponseSchema[UserOut], dependencies=[Depends(JWTBearer())])
 async def me(request: Request, db: Session = Depends(get_db)):

@@ -1,6 +1,6 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from typing import List
-from schemas.users import  ResponseSchema, UserUpdateSchema
+from schemas.users import  ResponseSchema, UserUpdateSchema, ChangePassword
 from sqlalchemy.orm import Session
 from config import get_db
 from passlib.context import CryptContext
@@ -40,7 +40,7 @@ async def get_one_user(user_id: int, db: Session = Depends(get_db)):
 
     return ResponseSchema(code="200", status="Ok", message="Utilisateur trouvé", result=user).dict(exclude_none=True)
 
-# Mise à jour de l'user
+# Mise à jour 
 @router.put("/update_users/{id}")
 async def update_user(
     id: int,
@@ -48,7 +48,6 @@ async def update_user(
     db: Session = Depends(get_db)
 ):
     try:
-        # Convertit le modèle Pydantic en dictionnaire, sans les champs non définis
         update_data = user_update.dict(exclude_unset=True)
 
         # Vérifie si l'utilisateur existe
@@ -60,33 +59,91 @@ async def update_user(
                 message="Utilisateur non trouvé"
             ).dict(exclude_none=True)
 
-        # Si le mot de passe est présent, on le hash avant la mise à jour
-        if "password" in update_data and update_data["password"]:
-            update_data["password"] = pwd_context.hash(update_data["password"])
-
-        # Effectue la mise à jour
+        # Mise à jour dans la base
         updated_user = UpdateUser.update_user(db, Users, id, update_data)
 
         return ResponseSchema(
             code="200",
-            status="Ok",
+            status="OK",
             message="Utilisateur mis à jour avec succès",
             result=updated_user
         ).dict(exclude_none=True)
 
     except Exception as error:
-        print(f"Error updating user: {str(error)}")
+        print(f"Erreur lors de la mise à jour de l'utilisateur : {str(error)}")
         return ResponseSchema(
             code="500",
             status="Error",
-            message="Erreur lors de la mise à jour"
+            message="Erreur interne du serveur"
         ).dict(exclude_none=True)
+
+# Modifier le password par l'email
+@router.put("/change_password_by_email")
+async def change_password_by_email(data: ChangePassword, db: Session = Depends(get_db)):
+    try:
+        # Cherche l'utilisateur par email
+        user = db.query(Users).filter(Users.email == data.email).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="Utilisateur non trouvé")
+
+        # Vérifie l'ancien mot de passe
+        if not pwd_context.verify(data.old_password, user.password):
+            raise HTTPException(status_code=400, detail="Ancien mot de passe incorrect")
+
+        # Hash le nouveau mot de passe
+        user.password = pwd_context.hash(data.new_password)
+
+        # Met à jour en base
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+
+        # Réponse
+        return ResponseSchema(
+            code="200",
+            status="OK",
+            message="Mot de passe changé avec succès"
+        ).dict(exclude_none=True)
+
+    except HTTPException as http_error:
+        return ResponseSchema(
+            code=str(http_error.status_code),
+            status="Error",
+            message=http_error.detail
+        ).dict(exclude_none=True)
+
+    except Exception as e:
+        print(f"Erreur serveur: {e}")
+        return ResponseSchema(
+            code="500",
+            status="Error",
+            message="Erreur interne du serveur"
+        ).dict(exclude_none=True)
+
 
 # Suppression de l'user par l'id
 @router.delete("/delete_users/{id}")
-async def delete_user(user_id: int, db: Session = Depends(get_db)):
-    user = DeleteUser.delete_user(db, user_id)
-    if not user:
-        return ResponseSchema(code="404", status="Error", message="Utilisateur non trouvé").dict(exclude_none=True)
+async def delete_user(id: int, db: Session = Depends(get_db)):
+    try:
+        # Tentative de suppression de l'utilisateur
+        deleted = DeleteUser.delete_user(db, id)
 
-    return ResponseSchema(code="200", status="Ok", message="Utilisateur supprimé avec succès").dict(exclude_none=True)
+        if not deleted:
+            return ResponseSchema(
+                code="404",
+                status="Error",
+                message="Utilisateur non trouvé"
+            ).dict(exclude_none=True)
+
+        return ResponseSchema(
+            code="200",
+            status="OK",
+            message="Utilisateur supprimé avec succès"
+        ).dict(exclude_none=True)
+    except Exception as error:
+        print(f"Erreur lors de la suppression de l'utilisateur : {str(error)}")
+        return ResponseSchema(
+            code="500",
+            status="Error",
+            message="Erreur interne du serveur"
+        ).dict(exclude_none=True)

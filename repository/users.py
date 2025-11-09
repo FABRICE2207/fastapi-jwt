@@ -38,7 +38,7 @@ class AllUsersRepo(BaseRepo):
     def get_all(db: Session, model: Generic[T]):
         users = db.query(model).all()
         for user in users:
-          user.__dict__.pop('password', None)
+          user.__dict__.pop('password', None) # Retourne tout sauf le password
         return users
     
 # get one users
@@ -84,13 +84,14 @@ class UpdateUser(BaseRepo):
 # Suppression de l'user
 class DeleteUser:
     @staticmethod
-    def delete_user(db: Session, user_id: int):
+    def delete_user(db: Session, id: int):
         # On filtre par id
-        user = db.query(Users).filter(Users.id == user_id).first()
+        user = db.query(Users).filter(Users.id == id).first()
         if not user:
             return None  # Utilisateur non trouvé
         db.delete(user)   # Supprime l'utilisateur
         db.commit()       # Applique la suppression
+        return True
    
 # Générer le token
 class JWTRepo():

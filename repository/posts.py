@@ -86,4 +86,5 @@ class DeletePost:
             return None  # Utilisateur non trouvé
         db.delete(post)   # Supprime du post
         db.commit()       # Applique post
+        return True
     
