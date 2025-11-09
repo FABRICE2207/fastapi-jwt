@@ -47,6 +47,9 @@ class ChangePassword(BaseModel):
             raise ValueError("Le nouveau mot de passe et la confirmation doivent correspondre")
         return v
    
+   class Config:
+        from_attributes = True  # Permet de convertir un objet SQLAlchemy en Pydantic automatiquement
+   
 
 # Model de reponse
 class ResponseSchema(BaseModel, Generic[T]):
